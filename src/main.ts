@@ -3,7 +3,7 @@ import { init } from "./webgpu";
 import { mat4, vec3 } from "gl-matrix";
 import callstackLogo from "./assets/callstack.png";
 
-import triangleTextured from "./shaders/triangleTextured.wgsl?raw";
+import triangleTexturedVertexBuffer from "./shaders/triangleTexturedVertexBuffer.wgsl?raw";
 const [device, context] = await init(document.querySelector("#my-canvas")!);
 
 // GPU would be useless if we'd not be able to pass arbitrary data to our GPU to work on.
@@ -17,7 +17,30 @@ const [device, context] = await init(document.querySelector("#my-canvas")!);
 const canvas: HTMLCanvasElement = document.querySelector("#my-canvas")!;
 const aspectRatio = canvas.width / canvas.height;
 
-const shader = device.createShaderModule({ code: triangleTextured });
+const shader = device.createShaderModule({
+  code: triangleTexturedVertexBuffer,
+});
+
+// We can also pass vertices as a buffer instead of creating them in shader!
+// This is used for loading models and other data.
+// prettier-ignore
+const triangleData = new Float32Array([
+    // coordinates           uv coordinates
+    0.0,  0.5, 1.0, 1.0,     0.5, 0.2,
+   -0.5, -0.5, 1.0, 1.0,     0.0, 0.7,
+    0.5, -0.5, 1.0, 1.0,     1.0, 0.7
+]);
+
+// Create a buffer which will be a vertex buffer for our shader.
+const triangleBuffer = device.createBuffer({
+  size: triangleData.byteLength,
+  usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
+  mappedAtCreation: true,
+});
+// And copy it by setting the region of memory mapped for both CPU & GPU.
+new Float32Array(triangleBuffer.getMappedRange()).set(triangleData);
+// Unlock & unmap the buffer from CPU space. It can be used by GPU now.
+triangleBuffer.unmap();
 
 const pipeline = device.createRenderPipeline({
   layout: "auto",
@@ -29,6 +52,31 @@ const pipeline = device.createRenderPipeline({
   vertex: {
     module: shader,
     entryPoint: "vs_main",
+    // Here we define how buffer should be read by shader.
+    // Without it it's just a bunch of numbers.
+    buffers: [
+      {
+        // Every vertex is 6 floats, 4 bytes each.
+        arrayStride: 6 * 4,
+        attributes: [
+          {
+            // In location 0 we'll have position of vertex.
+            shaderLocation: 0,
+            // This data starts at 0 byte of every vertex data.
+            offset: 0,
+            // These are 4 floats.
+            format: "float32x4",
+          },
+          {
+            // In location 1 we'll have UV coordinates of vertex.
+            shaderLocation: 1,
+            // This data starts at 4 * 4th byte of every vertex data.
+            offset: 4 * 4,
+            format: "float32x2",
+          },
+        ],
+      },
+    ],
   },
   primitive: {
     topology: "triangle-list",
@@ -110,7 +158,7 @@ const bindGroup = device.createBindGroup({
   // Camera matrix uniform will occupy slot (binding 0) of this bind group.
   entries: [
     { binding: 0, resource: { buffer: cameraUniformBuffer } },
-    // NEW: Pass our sampler & texture to bind group.
+    // Pass our sampler & texture to bind group.
     { binding: 1, resource: logoTexture.createView() },
     { binding: 2, resource: textureSampler },
   ],
@@ -144,6 +192,8 @@ const renderFrame = () => {
   renderPass.setPipeline(pipeline);
   // We need to set bind group we've created to use in shaders.
   renderPass.setBindGroup(0, bindGroup);
+  // We need to set the vertex buffer as well.
+  renderPass.setVertexBuffer(0, triangleBuffer);
   renderPass.draw(3, 1, 0, 0);
   renderPass.end();
   device.queue.submit([encoder.finish()]);
