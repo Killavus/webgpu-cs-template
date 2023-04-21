@@ -1,8 +1,9 @@
 import "./style.css";
 import { init } from "./webgpu";
 import { mat4, vec3 } from "gl-matrix";
+import callstackLogo from "./assets/callstack.png";
 
-import triangleWithCamera from "./shaders/triangleWithCamera.wgsl?raw";
+import triangleTextured from "./shaders/triangleTextured.wgsl?raw";
 const [device, context] = await init(document.querySelector("#my-canvas")!);
 
 // GPU would be useless if we'd not be able to pass arbitrary data to our GPU to work on.
@@ -16,7 +17,7 @@ const [device, context] = await init(document.querySelector("#my-canvas")!);
 const canvas: HTMLCanvasElement = document.querySelector("#my-canvas")!;
 const aspectRatio = canvas.width / canvas.height;
 
-const shader = device.createShaderModule({ code: triangleWithCamera });
+const shader = device.createShaderModule({ code: triangleTextured });
 
 const pipeline = device.createRenderPipeline({
   layout: "auto",
@@ -61,6 +62,43 @@ const cameraUniformBuffer = device.createBuffer({
   usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
 });
 
+// Let's create a texture to sample points from:
+let logoTexture: GPUTexture;
+{
+  // Create in-memory image, decode it to image bitmap and copy to GPU.
+  const img = document.createElement("img");
+  img.src = new URL(callstackLogo, import.meta.url).toString();
+  await img.decode();
+  const imageBitmap = await createImageBitmap(img);
+
+  logoTexture = device.createTexture({
+    size: [imageBitmap.width, imageBitmap.height, 1],
+    format: "rgba8unorm",
+    usage:
+      // We want to bind this texture in our shader.
+      GPUTextureUsage.TEXTURE_BINDING |
+      // We want to copy from it.
+      GPUTextureUsage.COPY_DST |
+      // I don't know why we need it - it's used when it's an output texture.
+      // It is not :).
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  device.queue.copyExternalImageToTexture(
+    { source: imageBitmap },
+    { texture: logoTexture },
+    [imageBitmap.width, imageBitmap.height]
+  );
+}
+
+// Sampler is a way of taking color from textures. It defines how we "sample" texture.
+// magFilter and minFilter are strategies used when texture size is not aligned with
+// our viewport size - it defines how color should be sampled from multiple pixels of
+// textures.
+const textureSampler = device.createSampler({
+  magFilter: "linear",
+  minFilter: "linear",
+});
+
 // In order to define how we pass data to shaders, we use bind groups.
 // Bind groups define how data is lay out and how to access it
 // from perspective of shader.
@@ -70,7 +108,12 @@ const bindGroup = device.createBindGroup({
   // and switch bind groups every render pass.
   layout: pipeline.getBindGroupLayout(0),
   // Camera matrix uniform will occupy slot (binding 0) of this bind group.
-  entries: [{ binding: 0, resource: { buffer: cameraUniformBuffer } }],
+  entries: [
+    { binding: 0, resource: { buffer: cameraUniformBuffer } },
+    // NEW: Pass our sampler & texture to bind group.
+    { binding: 1, resource: logoTexture.createView() },
+    { binding: 2, resource: textureSampler },
+  ],
 });
 
 const renderFrame = () => {
