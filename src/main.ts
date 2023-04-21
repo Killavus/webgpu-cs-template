@@ -1,11 +1,11 @@
 import "./style.css";
 import { init } from "./webgpu";
 
-import triangleSolid from "./shaders/triangleSolid.wgsl?raw";
+import triangleLERP from "./shaders/triangleLERP.wgsl?raw";
 const [device, context] = await init(document.querySelector("#my-canvas")!);
 
 const shader = device.createShaderModule({
-  code: triangleSolid,
+  code: triangleLERP,
 });
 
 const pipeline = device.createRenderPipeline({
