@@ -40,10 +40,13 @@ const projectionMat = mat4.create();
 // for details.
 mat4.perspective(projectionMat, (2 * Math.PI) / 5, aspectRatio, 1.0, 100.0);
 
-function transformationMatrix(): Float32Array {
+function transformationMatrix(t: number): Float32Array {
   const viewMat = mat4.create();
   // Move model coordinates (x, y, 1.0) farther from the camera.
   mat4.translate(viewMat, viewMat, vec3.fromValues(0, 0, -4));
+
+  // Rotate every frame around the Z axis, so x & y will change and z will remain unchanged.
+  mat4.rotateZ(viewMat, viewMat, t);
 
   const cameraMat = mat4.create();
   mat4.multiply(cameraMat, projectionMat, viewMat);
@@ -74,7 +77,7 @@ const renderFrame = () => {
   const view = context.getCurrentTexture().createView();
   const encoder = device.createCommandEncoder();
   // Get our transformation matrix.
-  const tMat = transformationMatrix();
+  const tMat = transformationMatrix(Date.now() / 1000.0);
 
   // Move our buffer data to GPU.
   device.queue.writeBuffer(
